@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bazaar</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <button class="brand" data-action="nav" data-view="shop" aria-label="Bazaar home">Bazaar</button>
+
+    <input id="search" class="search" type="search" placeholder="Search products" aria-label="Search products" autocomplete="off">
+
+    <nav class="nav" aria-label="Main">
+      <button class="nav-link" data-action="nav" data-view="shop">Shop</button>
+      <button class="nav-link" data-action="nav" data-view="orders" id="nav-orders" hidden>My orders</button>
+      <button class="nav-link" data-action="nav" data-view="admin" id="nav-admin" hidden>Admin</button>
+      <button class="nav-link" data-action="auth" id="nav-auth">Sign in</button>
+      <button class="cart-btn" data-action="cart" aria-label="Open cart">
+        Cart <span id="cart-count" class="badge">0</span>
+      </button>
+    </nav>
+  </header>
+
+  <main id="view" class="page" aria-live="polite"></main>
+
+  <div id="scrim" class="scrim" data-action="close-cart"></div>
+  <aside id="cart" class="drawer" aria-label="Shopping cart" inert>
+    <div class="drawer-head">
+      <h2>Your cart</h2>
+      <button class="link" data-action="close-cart">Close</button>
+    </div>
+    <div id="cart-body" class="drawer-body"></div>
+  </aside>
+
+  <dialog id="auth" class="dialog" aria-labelledby="auth-title"></dialog>
+
+  <div id="toast" class="toast" role="status"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

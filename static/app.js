@@ -17,6 +17,8 @@ const state = {
   address: "",             // kept here so re-rendering the cart doesn't erase what you typed
   authMode: "login",       // "login" | "register"
   editing: null,           // product being edited in the admin form
+  productId: null,         // which product "product" view is showing
+  draftRating: 0,          // star picker value while writing a review
 };
 let adminProducts = [];
 let renderId = 0;
@@ -34,6 +36,17 @@ const esc = (value) =>
 
 const formatDate = (sqlTimestamp) =>
   new Date(sqlTimestamp.replace(" ", "T") + "Z").toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+
+// Renders a static (non-interactive) star row, e.g. ★★★★☆. Rounds to the nearest whole star.
+function starRow(rating) {
+  const filled = Math.round(rating || 0);
+  return "★".repeat(filled) + "☆".repeat(5 - filled);
+}
+
+function ratingSummary(p) {
+  if (!p.review_count) return `<span class="stars muted">No reviews yet</span>`;
+  return `<span class="stars" aria-label="${p.avg_rating} out of 5 stars">${starRow(p.avg_rating)}</span> ${p.avg_rating} (${p.review_count})`;
+}
 
 let toastTimer;
 function toast(message, isError = false) {
@@ -184,7 +197,8 @@ function productCard(p) {
       <div class="tile" style="--h:${hue(p.category)}" aria-hidden="true">${esc(p.emoji)}</div>
       <div class="card-body">
         <span class="card-cat">${esc(p.category)}</span>
-        <h3 class="card-title">${esc(p.name)}</h3>
+        <button class="card-title link-reset" data-action="open-product" data-id="${p.id}">${esc(p.name)}</button>
+        <p class="card-rating">${ratingSummary(p)}</p>
         <p class="card-desc">${esc(p.description)}</p>
         <div class="card-foot">
           <div><div class="price">${rupees(p.price)}</div>${note}</div>
@@ -330,11 +344,82 @@ async function adminView() {
     </section>`;
 }
 
+function reviewCard(r, productId) {
+  const mine = state.user && r.user_id === state.user.id;
+  return `
+    <article class="review">
+      <div class="review-head">
+        <strong>${esc(r.reviewer_name)}${mine ? " (you)" : ""}</strong>
+        <span class="stars" aria-label="${r.rating} out of 5 stars">${starRow(r.rating)}</span>
+      </div>
+      <p class="review-date">${formatDate(r.created_at)}</p>
+      ${r.comment ? `<p>${esc(r.comment)}</p>` : ""}
+      ${mine ? `<button class="link" data-action="delete-review" data-id="${productId}">Delete your review</button>` : ""}
+    </article>`;
+}
+
+function starPicker() {
+  const buttons = [1, 2, 3, 4, 5]
+    .map(
+      (n) =>
+        `<button type="button" class="star-btn" data-action="rate" data-value="${n}" aria-label="${n} star${n > 1 ? "s" : ""}"
+           aria-pressed="${state.draftRating >= n}">${state.draftRating >= n ? "★" : "☆"}</button>`
+    )
+    .join("");
+  return `<div class="star-picker" role="group" aria-label="Your rating">${buttons}</div>`;
+}
+
+async function productView(id) {
+  const [product, reviews] = await Promise.all([api(`/products/${id}`), api(`/products/${id}/reviews`)]);
+  const mine = state.user ? reviews.find((r) => r.user_id === state.user.id) : null;
+  const out = product.stock === 0;
+
+  let reviewSection;
+  if (!state.user) {
+    reviewSection = `<p class="hint">Sign in to write a review.</p>`;
+  } else if (mine) {
+    reviewSection = `<p class="hint">You already reviewed this product. Delete your review below to write a new one.</p>`;
+  } else {
+    reviewSection = `
+      <form data-form="review" class="panel">
+        <input type="hidden" name="product_id" value="${id}">
+        ${starPicker()}
+        <label>Comment (optional)<textarea name="comment" maxlength="500" placeholder="What did you think?"></textarea></label>
+        <button class="btn primary" type="submit" ${state.draftRating ? "" : "disabled"}>Submit review</button>
+      </form>`;
+  }
+
+  return `
+    <button class="link" data-action="nav" data-view="shop">&larr; Back to shop</button>
+    <div class="product-detail">
+      <div class="tile large" style="--h:${hue(product.category)}" aria-hidden="true">${esc(product.emoji)}</div>
+      <div>
+        <span class="card-cat">${esc(product.category)}</span>
+        <h1>${esc(product.name)}</h1>
+        <p class="card-rating">${ratingSummary(product)}</p>
+        <p>${esc(product.description)}</p>
+        <div class="card-foot">
+          <div><div class="price">${rupees(product.price)}</div>
+            <span class="stock ${out ? "out" : product.stock <= 5 ? "low" : ""}">${out ? "Sold out" : product.stock <= 5 ? `Only ${product.stock} left` : "In stock"}</span>
+          </div>
+          <button class="btn primary" data-action="add" data-id="${product.id}" ${out ? "disabled" : ""}>Add to cart</button>
+        </div>
+      </div>
+    </div>
+
+    <section class="section">
+      <h2>Reviews${reviews.length ? ` (${reviews.length})` : ""}</h2>
+      ${reviewSection}
+      ${reviews.length ? reviews.map((r) => reviewCard(r, id)).join("") : `<p class="empty">No reviews yet — be the first.</p>`}
+    </section>`;
+}
+
 async function render() {
   const id = ++renderId; // if a newer render starts while we wait for the server, drop this one
   let html;
   try {
-    if (state.view === "orders" && state.user) html = await ordersView();
+    if (state.view === "product" && state.productId) html = await productView(state.productId);
+    else if (state.view === "orders" && state.user) html = await ordersView();
     else if (state.view === "admin" && state.user && state.user.role === "admin") html = await adminView();
     else {
       state.view = "shop";
@@ -403,6 +488,36 @@ const actions = {
   cart() {
     if (!state.user) return openAuth("login", "Sign in to see your cart.");
     toggleCart(true);
+  },
+  "open-product"({ id }) {
+    state.productId = Number(id);
+    state.draftRating = 0;
+    state.view = "product";
+    render();
+    window.scrollTo({ top: 0 });
+  },
+  rate({ value }) {
+    // Update the stars and the submit button in place. A full render() here would re-fetch the
+    // product and reviews from the server and replace the form, wiping out any comment already typed.
+    state.draftRating = Number(value);
+    document.querySelectorAll(".star-btn").forEach((btn) => {
+      const n = Number(btn.dataset.value);
+      const on = state.draftRating >= n;
+      btn.textContent = on ? "★" : "☆";
+      btn.setAttribute("aria-pressed", on);
+    });
+    const submit = document.querySelector('[data-form="review"] button[type="submit"]');
+    if (submit) submit.disabled = false;
+  },
+  async "delete-review"({ id }) {
+    if (!confirm("Delete your review?")) return;
+    try {
+      await api(`/products/${id}/reviews/mine`, { method: "DELETE" });
+      toast("Review deleted");
+      render();
+    } catch (err) {
+      toast(err.message, true);
+    }
   },
   "close-cart": () => toggleCart(false),
   auth() {
@@ -473,6 +588,21 @@ const forms = {
     } catch (err) {
       toast(err.message, true);
       loadCart().catch(() => {});
+    }
+  },
+
+  async review(_form, data) {
+    const productId = data.get("product_id");
+    try {
+      await api(`/products/${productId}/reviews`, {
+        method: "POST",
+        body: { rating: state.draftRating, comment: data.get("comment") },
+      });
+      state.draftRating = 0;
+      toast("Review posted");
+      render();
+    } catch (err) {
+      toast(err.message, true);
     }
   },
 

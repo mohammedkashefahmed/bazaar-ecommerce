@@ -53,3 +53,16 @@ CREATE TABLE IF NOT EXISTS order_items (
 );
 
 CREATE INDEX IF NOT EXISTS idx_orders_user ON orders (user_id);
+
+-- One review per (user, product): the UNIQUE constraint is what stops someone submitting twice.
+CREATE TABLE IF NOT EXISTS reviews (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER NOT NULL REFERENCES products (id) ON DELETE CASCADE,
+    user_id    INTEGER NOT NULL REFERENCES users (id)    ON DELETE CASCADE,
+    rating     INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+    comment    TEXT    NOT NULL DEFAULT '',
+    created_at TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (product_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_reviews_product ON reviews (product_id);

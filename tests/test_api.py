@@ -209,5 +209,82 @@ class CartAndOrderTests(ApiTestCase):
         self.assertEqual(res.get_json(), {"error": "Not found"})
 
 
+class ReviewTests(ApiTestCase):
+    def test_new_product_has_no_reviews(self):
+        pid = self.product_by_name("Sticky Notes")["id"]
+        self.assertIsNone(self.product_by_name("Sticky Notes")["avg_rating"])
+        self.assertEqual(self.client.get(f"/api/products/{pid}/reviews").get_json(), [])
+
+    def test_post_review_updates_average(self):
+        headers = self.customer_headers()
+        pid = self.product_by_name("Sticky Notes")["id"]
+        res = self.client.post(f"/api/products/{pid}/reviews", json={"rating": 4, "comment": "Handy pads"}, headers=headers)
+        self.assertEqual(res.status_code, 201)
+
+        product = self.product_by_name("Sticky Notes")
+        self.assertEqual(product["avg_rating"], 4.0)
+        self.assertEqual(product["review_count"], 1)
+
+        reviews = self.client.get(f"/api/products/{pid}/reviews").get_json()
+        self.assertEqual(len(reviews), 1)
+        self.assertEqual(reviews[0]["reviewer_name"], "Asha")
+        self.assertEqual(reviews[0]["comment"], "Handy pads")
+
+    def test_average_across_multiple_reviewers(self):
+        pid = self.product_by_name("Sticky Notes")["id"]
+        self.client.post(f"/api/products/{pid}/reviews", json={"rating": 4}, headers=self.customer_headers("a@example.com"))
+        self.client.post(f"/api/products/{pid}/reviews", json={"rating": 2}, headers=self.customer_headers("b@example.com"))
+        product = self.product_by_name("Sticky Notes")
+        self.assertEqual(product["avg_rating"], 3.0)
+        self.assertEqual(product["review_count"], 2)
+
+    def test_cannot_review_same_product_twice(self):
+        headers = self.customer_headers()
+        pid = self.product_by_name("Sticky Notes")["id"]
+        self.client.post(f"/api/products/{pid}/reviews", json={"rating": 5}, headers=headers)
+        res = self.client.post(f"/api/products/{pid}/reviews", json={"rating": 3}, headers=headers)
+        self.assertEqual(res.status_code, 409)
+
+    def test_review_requires_login_and_valid_rating(self):
+        pid = self.product_by_name("Sticky Notes")["id"]
+        anon = self.client.post(f"/api/products/{pid}/reviews", json={"rating": 5})
+        self.assertEqual(anon.status_code, 401)
+
+        headers = self.customer_headers()
+        bad = self.client.post(f"/api/products/{pid}/reviews", json={"rating": 6}, headers=headers)
+        self.assertEqual(bad.status_code, 400)
+
+    def test_review_for_missing_product_is_404(self):
+        headers = self.customer_headers()
+        res = self.client.post("/api/products/99999/reviews", json={"rating": 5}, headers=headers)
+        self.assertEqual(res.status_code, 404)
+
+    def test_delete_own_review(self):
+        headers = self.customer_headers()
+        pid = self.product_by_name("Sticky Notes")["id"]
+        self.client.post(f"/api/products/{pid}/reviews", json={"rating": 5}, headers=headers)
+        res = self.client.delete(f"/api/products/{pid}/reviews/mine", headers=headers)
+        self.assertEqual(res.status_code, 204)
+        self.assertIsNone(self.product_by_name("Sticky Notes")["avg_rating"])
+        # After deleting, the same user can post a fresh review.
+        again = self.client.post(f"/api/products/{pid}/reviews", json={"rating": 2}, headers=headers)
+        self.assertEqual(again.status_code, 201)
+
+    def test_deleting_a_review_you_never_left_is_404(self):
+        headers = self.customer_headers()
+        pid = self.product_by_name("Sticky Notes")["id"]
+        res = self.client.delete(f"/api/products/{pid}/reviews/mine", headers=headers)
+        self.assertEqual(res.status_code, 404)
+
+    def test_deleting_product_cascades_its_reviews(self):
+        admin = self.admin_headers()
+        customer = self.customer_headers()
+        pid = self.product_by_name("Sticky Notes")["id"]
+        self.client.post(f"/api/products/{pid}/reviews", json={"rating": 5}, headers=customer)
+        self.client.delete(f"/api/products/{pid}", headers=admin)
+        # The product (and its reviews) are gone; re-adding the same product name starts fresh.
+        self.assertEqual(self.client.get(f"/api/products/{pid}/reviews").get_json(), [])
+
+
 if __name__ == "__main__":
     unittest.main()

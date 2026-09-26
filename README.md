@@ -9,11 +9,12 @@ A small online store with a REST API, JWT login, a shopping cart, checkout and a
 - Register and sign in. Passwords are hashed, and sessions use signed JWT tokens
 - Two roles: **customer** and **admin**, enforced on the server
 - Product catalogue with search, category filter and pagination
+- **Star ratings and reviews.** Signed-in users leave one rating (1-5) and an optional comment per product; the average and count are computed live with a SQL `JOIN` + `AVG`, and shown on both the product grid and product page
 - Server-side cart that follows the user across devices
 - Checkout that runs in one database transaction, so stock can never go negative
 - Order history for customers
 - Admin panel: add, edit and delete products; view all orders; change order status (cancelling an order returns its stock)
-- 20 automated API tests
+- 29 automated API tests
 
 ## Run it (about 5 minutes)
 
@@ -88,7 +89,10 @@ Send the token as `Authorization: Bearer <token>`. Errors always look like `{"er
 | GET | `/api/me` | signed in | Current user |
 | GET | `/api/products?q=&category=&page=` | anyone | Search, filter, paginate |
 | GET | `/api/categories` | anyone | List of categories |
-| GET | `/api/products/<id>` | anyone | One product |
+| GET | `/api/products/<id>` | anyone | One product (includes `avg_rating`, `review_count`) |
+| GET | `/api/products/<id>/reviews` | anyone | All reviews for a product |
+| POST | `/api/products/<id>/reviews` | signed in | Add `{rating, comment}` (one per user per product) |
+| DELETE | `/api/products/<id>/reviews/mine` | signed in | Delete your own review |
 | POST / PUT / DELETE | `/api/products[/<id>]` | admin | Create, update, delete a product |
 | GET | `/api/cart` | signed in | Your cart with total |
 | POST | `/api/cart` | signed in | Add `{product_id, quantity}` |
@@ -105,12 +109,13 @@ Send the token as `Authorization: Bearer <token>`. Errors always look like `{"er
 3. **Checkout.** `place_order` in `api.py` runs `UPDATE products SET stock = stock - ? WHERE id = ? AND stock >= ?` for each cart line. That one statement checks and reduces stock together. If any line fails, the whole transaction is rolled back. Order lines copy the product name and price, so old orders stay correct if a product changes later.
 4. **SQL injection.** Every query uses `?` placeholders. There is a test that sends `'; DROP TABLE products; --` as a search.
 5. **XSS.** The frontend escapes all product and user text with `esc()` before putting it in the page.
+6. **Ratings.** The `reviews` table has a `UNIQUE(product_id, user_id)` constraint, so the database itself blocks a second review, not just the frontend. The average is computed with `AVG(r.rating)` in the same query as the product, so it's never out of sync with the underlying reviews.
 
 ## Make it yours (do at least two of these)
 
 Adding your own features is what turns this from a download into your project.
 
-- **Easy:** product reviews and ratings, a wishlist, sort by price, a "low stock" filter in admin
+- **Easy:** a wishlist, sort by price, a "low stock" filter in admin, edit your own review instead of only delete-and-repost
 - **Medium:** real product image uploads, order confirmation email (Flask-Mail), password reset, coupon codes
 - **Harder:** payments in test mode (Razorpay or Stripe sandbox), move from SQLite to PostgreSQL, add rate limiting on login, switch the backend to Java Spring Boot
 

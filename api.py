@@ -15,6 +15,9 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 ORDER_STATUSES = ("placed", "shipped", "delivered", "cancelled")
 PAGE_SIZE = 8
 
+# Shared SQL fragment: rounds the average to 1 decimal and returns null (not 0) when there are no reviews.
+RATING_COLUMNS = "ROUND(AVG(r.rating), 1) AS avg_rating, COUNT(r.id) AS review_count"
+
 
 class OutOfStock(Exception):
     """Raised inside checkout when a product no longer has enough stock."""
@@ -106,17 +109,18 @@ def list_products():
     # Only fixed SQL fragments are joined into the query; user input always goes through "?" params.
     conditions, params = [], []
     if q:
-        conditions.append("(name LIKE ? OR description LIKE ?)")
+        conditions.append("(p.name LIKE ? OR p.description LIKE ?)")
         params += [f"%{q}%", f"%{q}%"]
     if category:
-        conditions.append("category = ?")
+        conditions.append("p.category = ?")
         params.append(category)
     where = "WHERE " + " AND ".join(conditions) if conditions else ""
 
     db = get_db()
-    total = db.execute(f"SELECT COUNT(*) FROM products {where}", params).fetchone()[0]
+    total = db.execute(f"SELECT COUNT(*) FROM products p {where}", params).fetchone()[0]
     rows = db.execute(
-        f"SELECT * FROM products {where} ORDER BY id LIMIT ? OFFSET ?",
+        f"SELECT p.*, {RATING_COLUMNS} FROM products p LEFT JOIN reviews r ON r.product_id = p.id "
+        f"{where} GROUP BY p.id ORDER BY p.id LIMIT ? OFFSET ?",
         params + [per_page, (page - 1) * per_page],
     ).fetchall()
     return jsonify({
@@ -135,7 +139,11 @@ def list_categories():
 
 @bp.get("/products/<int:product_id>")
 def get_product(product_id):
-    row = get_db().execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+    row = get_db().execute(
+        f"SELECT p.*, {RATING_COLUMNS} FROM products p LEFT JOIN reviews r ON r.product_id = p.id "
+        "WHERE p.id = ? GROUP BY p.id",
+        (product_id,),
+    ).fetchone()
     if row is None:
         return error("Product not found", 404)
     return jsonify(dict(row))
@@ -183,6 +191,58 @@ def delete_product(product_id):
     db.commit()
     if cur.rowcount == 0:
         return error("Product not found", 404)
+    return "", 204
+
+
+# -------------------------------------------------------------------------- reviews
+
+@bp.get("/products/<int:product_id>/reviews")
+def list_reviews(product_id):
+    rows = get_db().execute(
+        "SELECT r.id, r.rating, r.comment, r.created_at, r.user_id, u.name AS reviewer_name "
+        "FROM reviews r JOIN users u ON u.id = r.user_id "
+        "WHERE r.product_id = ? ORDER BY r.created_at DESC",
+        (product_id,),
+    ).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@bp.post("/products/<int:product_id>/reviews")
+@login_required
+def add_review(product_id):
+    data = get_json()
+    rating = data.get("rating")
+    comment = str(data.get("comment", "")).strip()
+    if not is_int(rating) or not 1 <= rating <= 5:
+        return error("Rating must be a whole number from 1 to 5")
+    if len(comment) > 500:
+        return error("Comment must be 500 characters or fewer")
+
+    db = get_db()
+    if db.execute("SELECT 1 FROM products WHERE id = ?", (product_id,)).fetchone() is None:
+        return error("Product not found", 404)
+
+    try:
+        db.execute(
+            "INSERT INTO reviews (product_id, user_id, rating, comment) VALUES (?, ?, ?, ?)",
+            (product_id, g.user["id"], rating, comment),
+        )
+        db.commit()
+    except sqlite3.IntegrityError:  # the UNIQUE(product_id, user_id) constraint
+        return error("You've already reviewed this product. Delete your review to leave a new one.", 409)
+    return jsonify({"message": "Review added"}), 201
+
+
+@bp.delete("/products/<int:product_id>/reviews/mine")
+@login_required
+def delete_my_review(product_id):
+    db = get_db()
+    cur = db.execute(
+        "DELETE FROM reviews WHERE product_id = ? AND user_id = ?", (product_id, g.user["id"])
+    )
+    db.commit()
+    if cur.rowcount == 0:
+        return error("You haven't reviewed this product", 404)
     return "", 204
 
 

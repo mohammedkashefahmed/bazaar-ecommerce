@@ -178,6 +178,31 @@ td.actions { white-space: nowrap; text-align: right; }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 .toast.error { background: var(--brick); }
 
+/* ---------- ratings and reviews ---------- */
+.link-reset { border: 0; background: none; padding: 0; text-align: left; font: inherit; }
+.card-title.link-reset { font-size: 1.1rem; font-weight: 700; }
+.card-title.link-reset:hover { color: var(--peacock); text-decoration: underline; }
+.card-rating { margin: 0; font-size: 0.9rem; color: var(--muted); }
+.stars { color: var(--saffron); letter-spacing: 1px; }
+.stars.muted { color: var(--muted); letter-spacing: normal; }
+
+.star-picker { display: flex; gap: 0.2rem; margin-bottom: 0.9rem; }
+.star-btn { border: 0; background: none; padding: 0.1rem; font-size: 1.8rem; line-height: 1; color: var(--saffron); }
+.star-btn:hover { transform: scale(1.1); }
+
+.product-detail { display: grid; grid-template-columns: 260px 1fr; gap: 2rem; align-items: start; margin-bottom: 1rem; }
+.tile.large { height: 260px; border-radius: var(--radius); font-size: 6rem; }
+.product-detail h1 { margin: 0.3rem 0 0.5rem; }
+
+.review { padding: 1rem 0; border-bottom: 1px solid var(--line); }
+.review-head { display: flex; align-items: center; gap: 0.6rem; }
+.review-date { margin: 0.1rem 0 0.4rem; color: var(--muted); font-size: 0.85rem; }
+
+@media (max-width: 720px) {
+  .product-detail { grid-template-columns: 1fr; }
+  .tile.large { height: 200px; }
+}
+
 /* ---------- small screens ---------- */
 @media (max-width: 720px) {
   .topbar { grid-template-columns: 1fr; gap: 0.6rem; padding: 0.75rem 1rem; }
